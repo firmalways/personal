@@ -21,15 +21,19 @@ const Engine = require(path.join(ROOT, "src/core/engine.js"));
 const Vault = require(path.join(ROOT, "src/core/vault.js"));
 const Policy = require(path.join(ROOT, "src/core/policy.js"));
 const I18n = require(path.join(ROOT, "src/i18n.js"));
+const Files = require(path.join(ROOT, "hook/files.js"));
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const HOME = process.env.FIRMALWAYS_HOME || path.join(os.homedir(), ".firmalways");
 const FILES = {
   settings: path.join(HOME, "settings.json"),
   vault: path.join(HOME, "vault.json"),
   stats: path.join(HOME, "stats.json"),
   allow: path.join(HOME, "allow-next.json"),
+  fileChecks: path.join(HOME, "file-checks.json"),
+  allowedFiles: path.join(HOME, "allowed-files.json"),
 };
+const FILE_ALLOW_HOURS = 1;
 const MAX_TEXT = 200000;
 const VAULT_TTL_MS = 24 * 3600 * 1000;
 const ALLOW_TTL_MS = 10 * 60 * 1000;
@@ -55,6 +59,9 @@ function loadSettings() {
   s.clipboard = user.clipboard !== false; // copy the safe version to the clipboard
   s.restoreTools = user.restoreTools || "files"; // "files" | "all" | "off"
   s.failClosed = user.failClosed !== false;
+  s.fileGuard = user.fileGuard !== false; // stop agents from opening documents that hold personal data
+  s.unreadableFiles = user.unreadableFiles === "allow" ? "allow" : "block"; // files or pages FirmAlways could not check
+  s.ocr = user.ocr !== false; // read scanned PDF pages and images on this machine (macOS Vision, or tesseract)
   return s;
 }
 
@@ -181,6 +188,7 @@ const T = {
   failed: ["FirmAlways ตรวจข้อความไม่สำเร็จจึงยังไม่ส่ง ({error}) ปิดการป้องกันชั่วคราวได้ด้วย `firmalways off`", "FirmAlways could not check this prompt, so it was not sent ({error}). Turn protection off with `firmalways off`."],
   allowed: ["FirmAlways: ส่งต้นฉบับตามที่คุณอนุญาต (ครั้งเดียว)", "FirmAlways: sent the original once, as you allowed."],
   keptPlaceholders: ["FirmAlways ไม่ได้ใส่ค่าจริงกลับ เพราะงานนี้ต้องให้คุณอนุมัติก่อน ใส่กลับเองได้ด้วย `firmalways restore ไฟล์ > ไฟล์ใหม่`", "FirmAlways left the placeholders because this action needs your approval. Put values back with `firmalways restore file > newfile`."],
+  fileBlocked: ["FirmAlways ไม่ให้ AI เปิดไฟล์ {file} เพราะมี {types} ให้อ่านผ่าน firmalways read แทน (ข้อมูลถูกซ่อน) หรืออนุญาตไฟล์นี้ด้วย firmalways allow-file", "FirmAlways kept {file} from the AI because it contains {types}. It can read a masked copy with firmalways read, or you can allow the file with firmalways allow-file."],
   restored: ["FirmAlways ใส่ค่าจริงกลับใน {n} ตำแหน่งก่อนเขียนลงเครื่องคุณ", "FirmAlways put {n} real value(s) back before writing to your machine."],
 };
 const tr = (key, l, vars) => {
@@ -189,8 +197,22 @@ const tr = (key, l, vars) => {
   return s;
 };
 
+/** Files attached to a prompt that hold personal data: tell the agent up front to use the safe reader. */
+async function attachmentNote(input, settings) {
+  if (!settings.fileGuard) return null;
+  const hits = await guardedFiles({ tool_input: input.prompt, cwd: input.cwd }, settings);
+  if (!hits.length) return null;
+  const files = hits.map((h) => `${h.file} (${I18n.typeList(h.counts, "en")})`).join("; ");
+  return {
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      additionalContext: `FirmAlways: these files contain personal data: ${files}. Open them only with \`firmalways read <file>\`, which returns a masked copy. Keep placeholders like «PERSON_1» as they are. Any other way to open them is blocked.`,
+    },
+  };
+}
+
 /** UserPromptSubmit: returns the hook JSON to print, or null to let the prompt through untouched. */
-function onPrompt(input, agent) {
+async function onPrompt(input, agent) {
   const settings = loadSettings();
   const l = lang(settings);
   if (!settings.enabled) return null;
@@ -200,7 +222,7 @@ function onPrompt(input, agent) {
   const r = analyzeText(prompt, settings, vault);
   if (r.verdict === "pass") {
     record(agent, "checked", {});
-    return null;
+    return await attachmentNote(input, settings);
   }
   if (r.verdict === "toolong") return { decision: "block", reason: tr("tooLong", l) };
   if (r.verdict === "warn") {
@@ -225,6 +247,111 @@ function onPrompt(input, agent) {
   };
 }
 
+// ---- file guard ------------------------------------------------------------------------------
+const HOOK_OCR_BUDGET_MS = 6000;
+
+/**
+ * Verdict for one document, cached by path, size, mtime and settings (counts only, never text).
+ * In the hook, OCR gets a few seconds; pages it cannot reach make the file "unverified", and a
+ * background `firmalways scan` finishes the job so the next call is instant.
+ */
+async function scanFile(file, settings, budgetMs = Infinity) {
+  const st = fs.statSync(file);
+  const key = `${file}|${st.size}|${st.mtimeMs}|${settings.ocr}|${sha(JSON.stringify([settings.packs, settings.actions, settings.basic, settings.keywords, settings.rules, settings.mode]))}`;
+  const cache = readJson(FILES.fileChecks, {});
+  if (cache[file] && cache[file].key === key) return cache[file];
+  let doc = { text: null, unverified: ["error"] };
+  try {
+    doc = await Files.documentText(file, { budgetMs, ocr: settings.ocr });
+  } catch (_) {}
+  let result;
+  const found = doc.text && doc.text.trim() ? analyzeText(doc.text.slice(0, 5000000), settings, Vault.createVault()) : { verdict: "pass", counts: {} };
+  if (["mask", "ask", "block"].includes(found.verdict)) result = { verdict: found.verdict, counts: found.counts };
+  else if (doc.text === null || !doc.text.trim() || doc.unverified.length) result = { verdict: "unreadable", counts: {}, unverified: doc.unverified.length };
+  else result = { verdict: found.verdict, counts: found.counts };
+  if (result.verdict === "unreadable" && budgetMs !== Infinity && settings.ocr && doc.text !== null) {
+    backgroundScan(file); // finish the OCR without holding up the agent
+    return result;
+  }
+  result.key = key;
+  const names = Object.keys(cache);
+  if (names.length > 500) for (const k of names.slice(0, names.length - 500)) delete cache[k];
+  cache[file] = result;
+  writeJson(FILES.fileChecks, cache);
+  return result;
+}
+
+function backgroundScan(file) {
+  try {
+    const { spawn } = require("child_process");
+    spawn(process.execPath, [__filename, "scan", file, "--quiet"], { detached: true, stdio: "ignore" }).unref();
+  } catch (_) {}
+}
+
+function fileAllowed(file) {
+  const allowed = readJson(FILES.allowedFiles, {});
+  return allowed[file] && allowed[file] > Date.now();
+}
+
+const shq = (f) => `'${f.replace(/'/g, "'\\''")}'`;
+
+/** Documents in this tool call that hold personal data and were not allowed by the user. */
+async function guardedFiles(input, settings) {
+  const hits = [];
+  for (const file of Files.candidatePaths(input.tool_input, input.cwd)) {
+    if (fileAllowed(file)) continue;
+    let r;
+    try {
+      r = await scanFile(file, settings, HOOK_OCR_BUDGET_MS);
+    } catch (_) {
+      continue;
+    }
+    const held = ["mask", "ask", "block"].includes(r.verdict) || (r.verdict === "unreadable" && settings.unreadableFiles === "block");
+    if (held) hits.push({ file, counts: r.counts, unreadable: r.verdict === "unreadable" });
+  }
+  return hits;
+}
+
+function fileDenial(hits, agent, l) {
+  const all = {};
+  for (const h of hits) for (const [t, n] of Object.entries(h.counts)) all[t] = (all[t] || 0) + n;
+  record(agent, "blocked", all);
+  const list = hits.map((h) => `- ${h.file}: ${h.unreadable ? "not checked yet (scanned pages or an image; FirmAlways is reading it on this machine)" : I18n.typeList(h.counts, "en") + " (" + Object.values(h.counts).reduce((a, b) => a + b, 0) + " items)"}`).join("\n");
+  const first = hits[0].file;
+  const reason = [
+    "FirmAlways blocked this tool call: it opens a document that contains personal data.",
+    list,
+    "Do not open, convert, render to images, OCR or copy this file in any other way.",
+    `Read a masked text copy instead: firmalways read ${shq(first)} (add --pages 6-9 for part of a PDF).`,
+    "Values like «PERSON_1» are placeholders for real data; keep them exactly as they are in your answer.",
+    `If the user needs the real values, tell them they can allow this file for ${FILE_ALLOW_HOURS} hour by running: firmalways allow-file ${shq(first)}`,
+  ].join("\n");
+  return {
+    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason },
+    systemMessage: tr("fileBlocked", l, { file: path.basename(first), types: I18n.typeList(all, l) }),
+  };
+}
+
+/** The agent must not switch FirmAlways off, allow files for itself, or edit its settings or the hook
+ * config. Only the user does that, in their own terminal. */
+const USER_ONLY = /\bfirmalways(?:\.js)?["']?\s+(allow-file|allow-next|off|uninstall|init|install|forget)\b/;
+const PROTECTED_PATHS = /(^|[\s'"=:(/~])(?:~|\$HOME|\$\{HOME\}|\/Users\/[^/\s]+|\/home\/[^/\s]+)?\/?\.(firmalways)\/|\.codex\/(hooks\.json|config\.toml)|\.claude\/settings(\.local)?\.json/;
+function selfProtection(input) {
+  const text = JSON.stringify(input.tool_input || "");
+  const m = USER_ONLY.exec(text);
+  const p = !m && PROTECTED_PATHS.test(text.replace(/firmalways(?:\.js)?\s+(read|check|mask|scan|status|report|restore|version)\b[^"]*/g, ""));
+  if (!m && !p) return null;
+  return {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: m
+        ? `FirmAlways: only the user can run \`firmalways ${m[1]}\`, in their own terminal. Ask them to run it if they want to.`
+        : "FirmAlways: the agent may not change FirmAlways settings or the hook configuration. Ask the user to do it in their own terminal.",
+    },
+  };
+}
+
 const FILE_TOOLS = /^(apply_patch|applypatch|write|edit|multiedit|notebookedit|create_file|str_replace_based_edit_tool)$/i;
 
 const SHELL_TOOLS = /^(bash|shell|exec_command|local_shell|unified_exec|run_shell_command)$/i;
@@ -234,11 +361,19 @@ function writesFile(toolInput) {
   return /(^|[^0-9&>])>>?\s*(?![&\s|])/.test(cmd) || /\btee\s+(-a\s+)?[^\s|-]/.test(cmd);
 }
 
-/** PreToolUse: put real values back into what the agent writes on this machine. */
-function onTool(input, agent) {
+/** PreToolUse: keep documents with personal data away from the agent, and put real values back
+ * into what it writes on this machine. */
+async function onTool(input, agent) {
   const settings = loadSettings();
-  if (!settings.enabled || settings.restoreTools === "off") return null;
+  if (!settings.enabled) return null;
   const tool = String(input.tool_name || "");
+  const self = selfProtection(input);
+  if (self) return self;
+  if (settings.fileGuard) {
+    const hits = await guardedFiles(input, settings);
+    if (hits.length) return fileDenial(hits, agent, lang(settings));
+  }
+  if (settings.restoreTools === "off") return null;
   if (settings.restoreTools === "files" && !FILE_TOOLS.test(tool) && !(SHELL_TOOLS.test(tool) && writesFile(input.tool_input))) return null;
   const vault = loadVault();
   if (!Object.keys(vault.byToken).length) return null;
@@ -272,7 +407,7 @@ function onTool(input, agent) {
   };
 }
 
-function runHook(agent) {
+async function runHook(agent) {
   let raw = "";
   try {
     raw = fs.readFileSync(0, "utf8");
@@ -282,8 +417,8 @@ function runHook(agent) {
   try {
     input = JSON.parse(raw || "{}");
     const event = input.hook_event_name || input.hookEventName;
-    if (event === "UserPromptSubmit") out = onPrompt(input, agent);
-    else if (event === "PreToolUse") out = onTool(input, agent);
+    if (event === "UserPromptSubmit") out = await onPrompt(input, agent);
+    else if (event === "PreToolUse") out = await onTool(input, agent);
   } catch (error) {
     const settings = loadSettings();
     if ((input.hook_event_name || "") === "UserPromptSubmit" && settings.failClosed) out = { decision: "block", reason: tr("failed", lang(settings), { error: String(error.message || error).slice(0, 200) }) };
@@ -413,6 +548,8 @@ const HELP = `FirmAlways Personal ${VERSION} — checks what you send to AI codi
   firmalways init [codex|claude|all]   add the hook (default: every agent found)
   firmalways uninstall [codex|claude|all]
   firmalways check "text" | file | -   show what would happen, send nothing
+  firmalways read <file> [--pages 6-9] a masked text copy of a document or image (pdf incl. scanned pages, docx, xlsx, pptx, csv, txt, png, jpg)
+  firmalways allow-file <file> [hours] let the AI open this file with its real data (default 1 hour)
   firmalways mask [file|-]             print a safe copy (placeholders)
   firmalways restore [file|-]          put real values back into a text
   firmalways clip [--restore]          make the clipboard safe (for ChatGPT chat, Claude, Gemini)
@@ -426,6 +563,7 @@ Settings: ${FILES.settings}`;
 
 function main(argv) {
   const [cmd, arg, arg2] = argv;
+  if (cmd === "hook") return runHook(arg === "claude" ? "claude" : arg || "codex");
   const s = loadSettings();
   const l = lang(s);
   switch (cmd) {
@@ -436,7 +574,52 @@ function main(argv) {
       return install(arg, false);
     case "uninstall":
       return install(arg, true);
+    case "read": {
+      if (!arg) return console.log("firmalways read <file> [--pages 6-9]");
+      const file = path.resolve(arg);
+      const pages = argv.includes("--pages") ? Files.parseRange(argv[argv.indexOf("--pages") + 1]) : null;
+      return Files.documentText(file, { range: pages, ocr: s.ocr }).then(({ text, unverified }) => {
+        if (text === null || !text.trim() || unverified.length) {
+          console.log(`FirmAlways: could not read ${unverified.length ? "pages " + unverified.join(", ") + " of " : ""}${path.basename(file)} on this machine, so it was not opened.`);
+          process.exitCode = 1;
+          return;
+        }
+        const v = loadVault();
+        const r = analyzeText(text, s, v);
+        try {
+          saveVault(v); // may fail inside an agent sandbox; the masked copy is still safe to print
+        } catch (_) {
+          process.stderr.write("FirmAlways: could not save placeholders, real values cannot be restored later\n");
+        }
+        if (r.verdict !== "pass") record("read", "masked", r.counts);
+        console.log(`[FirmAlways: masked copy of ${path.basename(file)}${pages ? `, pages ${pages[0]}-${pages[1]}` : ""}. «TYPE_N» are placeholders for real values; keep them as they are.]`);
+        process.stdout.write(r.safe + "\n");
+      });
+    }
+    case "scan": {
+      if (!arg || !fs.existsSync(arg)) return;
+      return scanFile(path.resolve(arg), s).then((r) => {
+        if (!argv.includes("--quiet")) console.log(`${r.verdict} ${JSON.stringify(r.counts)}`);
+      });
+    }
+    case "allow-file": {
+      if (!arg) return console.log("firmalways allow-file <file> [hours]");
+      const file = path.resolve(arg);
+      const hours = Math.min(24 * 7, Math.max(0.1, Number(arg2) || FILE_ALLOW_HOURS));
+      const allowed = readJson(FILES.allowedFiles, {});
+      for (const [k, t] of Object.entries(allowed)) if (t < Date.now()) delete allowed[k];
+      allowed[file] = Date.now() + hours * 3600 * 1000;
+      writeJson(FILES.allowedFiles, allowed);
+      console.log(l === "th" ? `อนุญาตให้ AI เปิด ${path.basename(file)} ได้ ${hours} ชั่วโมง ข้อมูลจริงในไฟล์จะถูกส่งให้ผู้ให้บริการ AI` : `The AI may open ${path.basename(file)} for ${hours} hour(s). Its real data will go to the AI provider.`);
+      return;
+    }
     case "check": {
+      if (arg && fs.existsSync(arg) && Files.GUARD_EXT.test(arg)) {
+        return scanFile(path.resolve(arg), s).then((r) => {
+          console.log(`${l === "th" ? "ผล" : "verdict"}: ${r.verdict}`);
+          for (const [t, n] of Object.entries(r.counts)) console.log(`  ${I18n.typeName(t, l)}: ${n}`);
+        });
+      }
       const text = readInput(arg);
       const r = analyzeText(text, s, Vault.createVault());
       console.log(`${l === "th" ? "ผล" : "verdict"}: ${r.verdict}`);
@@ -495,4 +678,4 @@ function main(argv) {
 }
 
 if (require.main === module) main(process.argv.slice(2));
-module.exports = { analyzeText, onPrompt, onTool, mergeHooks, hookCommand, FILES, VERSION };
+module.exports = { analyzeText, onPrompt, onTool, mergeHooks, hookCommand, scanFile, FILES, VERSION };

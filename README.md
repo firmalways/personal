@@ -26,9 +26,13 @@ All three use the same security core.
 | Event | What FirmAlways does |
 |---|---|
 | `UserPromptSubmit` | Personal data: the prompt is not sent; a masked copy goes to your clipboard. Passwords, API keys and PDPA s.26 data: always cut out as `«REMOVED_…»`. Warn-only types: sent, with a note. |
-| `PreToolUse` | When the agent writes a file (apply_patch, Write/Edit, or a shell command with `>` / `tee`), placeholders are replaced with the real values on your machine. In Codex this happens only when the action would not have asked you anyway; it never skips an approval. Claude Code shows the rewrite and asks. |
+| `PreToolUse` (files) | Before the agent opens a document (pdf, docx, xlsx, pptx, csv, txt, md, json, images) in any way — `cat`, `pdftotext`, `pdftoppm`, Python, `view_image` — FirmAlways reads it on your machine, with OCR for scanned pages and images (macOS Vision, Thai and English; tesseract elsewhere). If it holds personal data the call is denied and the agent is told to use `firmalways read <file>`, which returns a masked copy. Files it cannot fully check are held too (fail closed). |
+| `UserPromptSubmit` (attachments) | Files named in the prompt are checked up front, and the agent is told to open them only through `firmalways read`. |
+| `PreToolUse` (self-protection) | The agent may not run `firmalways allow-file/allow-next/off/uninstall`, or edit `~/.firmalways`, `~/.codex/hooks.json` or Claude settings. |
+| `PreToolUse` (writes) | When the agent writes a file (apply_patch, Write/Edit, or a shell command with `>` / `tee`), placeholders are replaced with the real values on your machine. In Codex this happens only when the action would not have asked you anyway; it never skips an approval. Claude Code shows the rewrite and asks. |
 
-Commands: `firmalways init [codex|claude|all]`, `uninstall`, `check "text"`,
+Commands: `firmalways init [codex|claude|all]`, `uninstall`, `check "text"|file`,
+`read <file> [--pages 6-9]`, `allow-file <file> [hours]` (you only; the real data then goes to the AI provider),
 `mask`, `restore`, `clip [--restore]`, `allow-next`, `forget`, `status`,
 `report`, `on`, `off`. Settings live in `~/.firmalways/settings.json` (same
 policy packs and actions as the extension, plus `clipboard`, `restoreTools`
@@ -40,8 +44,12 @@ files can be restored; the report keeps counts only. Nothing is sent anywhere.
 Known limits: a hook can only stop a prompt, not rewrite it; the ChatGPT app may
 title a new chat from its first message before hooks run, so use `firmalways
 clip` before pasting personal data into a new chat; answers in the app keep
-placeholders (`firmalways clip --restore`); attachments and what the agent reads
-from files are not checked (that is FirmAlways Gate).
+placeholders (`firmalways clip --restore`). The file guard looks for file names in
+each tool call; a command that reaches a file without naming it (after `cd`, from a
+variable filled by an earlier command, from inside a script) can get past it, so it
+is a guard, not a sandbox — enforced isolation is FirmAlways Gate. OCR can miss
+text in dense tables; what it cannot read is left out of `firmalways read`, not
+sent unmasked.
 
 ## Browser extension
 

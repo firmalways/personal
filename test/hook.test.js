@@ -85,3 +85,57 @@ test("init merges with other hooks and uninstall removes only ours", () => {
   assert.strictEqual(H.mergeHooks(JSON.parse(JSON.stringify(added)), "codex", false).hooks.PreToolUse.length, 2, "idempotent");
   assert.deepStrictEqual(H.mergeHooks(added, "codex", true), cfg);
 });
+
+// ---- file guard ------------------------------------------------------------------------------
+const DOCS = fs.mkdtempSync(path.join(os.tmpdir(), "fa-docs-"));
+fs.writeFileSync(path.join(DOCS, "names.csv"), "ลำดับ,ชื่อ,โทร\n1,นางสาวสมศรี รักไทย,081-111-2222\n2,นายมานะ ใจกล้า,089-765-4321\n");
+fs.writeFileSync(path.join(DOCS, "notes.md"), "# Meeting\nWe agreed to ship on Friday.\n");
+fs.writeFileSync(path.join(DOCS, "ไฟล์ ภาษาไทย.txt"), "ติดต่อนายมานะ ใจกล้า โทร 089-765-4321\n");
+const bash = (command) => ({ hook_event_name: "PreToolUse", tool_name: "Bash", cwd: DOCS, permission_mode: "default", tool_input: { command } });
+const run = (args) => spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", cwd: DOCS, env: Object.assign({}, process.env, { FIRMALWAYS_HOME: HOME }) });
+
+test("the agent cannot open a document that holds personal data", () => {
+  for (const cmd of ["cat names.csv", `python3 -c "print(open('${DOCS}/names.csv').read())"`, "head -5 ./names.csv | sort", "cat 'ไฟล์ ภาษาไทย.txt'", "cat *.csv"]) {
+    const out = hook(bash(cmd));
+    assert.ok(out && out.hookSpecificOutput, cmd);
+    assert.strictEqual(out.hookSpecificOutput.permissionDecision, "deny", cmd);
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /firmalways read '/);
+    assert.ok(!/สมศรี|081-111-2222/.test(JSON.stringify(out)), "the denial carries no real values");
+  }
+  assert.ok(hook({ hook_event_name: "PreToolUse", tool_name: "view_image", cwd: DOCS, tool_input: { path: `${DOCS}/names.csv` } }).hookSpecificOutput);
+});
+
+test("clean documents and the safe reader are allowed", () => {
+  assert.strictEqual(hook(bash("cat notes.md")), null);
+  assert.strictEqual(hook(bash("firmalways read 'names.csv'")), null);
+  assert.strictEqual(hook(bash("firmalways read names.csv --pages 1-2 | head -20")), null);
+  assert.ok(hook(bash("firmalways read notes.md; cat names.csv")).hookSpecificOutput, "a second reader in the same command is still checked");
+});
+
+test("firmalways read prints a masked copy", () => {
+  const r = run(["read", "names.csv"]);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /นางสาว«PERSON_\d+»,«PHONE_\d+»/);
+  assert.ok(!/สมศรี|081-111-2222/.test(r.stdout));
+});
+
+test("allow-file lets the user open one file on purpose", () => {
+  run(["allow-file", path.join(DOCS, "names.csv")]);
+  assert.strictEqual(hook(bash("cat names.csv")), null);
+  assert.ok(hook(bash("cat 'ไฟล์ ภาษาไทย.txt'")).hookSpecificOutput, "other files stay guarded");
+});
+
+test("an attached document gets a note before the agent starts", () => {
+  const out = hook(Object.assign(prompt(`อ่านไฟล์ให้หน่อย\n# Files mentioned by the user:\n## ไฟล์ ภาษาไทย.txt: ${DOCS}/ไฟล์ ภาษาไทย.txt`), { cwd: DOCS }));
+  assert.match(out.hookSpecificOutput.additionalContext, /firmalways read/);
+});
+
+test("the agent cannot switch FirmAlways off or allow files for itself", () => {
+  for (const cmd of ["firmalways allow-file names.csv", "firmalways off", "cd /tmp && firmalways allow-next", "echo '{}' > ~/.firmalways/allowed-files.json", "rm -f $HOME/.firmalways/settings.json", "cat ~/.codex/hooks.json", "node ~/.firmalways/app/hook/firmalways.js uninstall"]) {
+    const out = hook(bash(cmd));
+    assert.ok(out && out.hookSpecificOutput && out.hookSpecificOutput.permissionDecision === "deny", cmd);
+  }
+  assert.ok(hook({ hook_event_name: "PreToolUse", tool_name: "apply_patch", cwd: DOCS, tool_input: { command: "*** Update File: /Users/me/.firmalways/settings.json\n" } }).hookSpecificOutput);
+  assert.strictEqual(hook(bash("firmalways status")), null);
+  assert.strictEqual(hook(bash("firmalways read notes.md")), null);
+});
