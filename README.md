@@ -1,19 +1,54 @@
 # FirmAlways Personal
 
-**Free browser extension that hides your personal data before it reaches an AI.**
-ส่วนขยายเบราว์เซอร์ฟรี ซ่อนข้อมูลส่วนตัวก่อนส่งให้ AI ใช้บัญชี ChatGPT, Claude, Gemini เดิมได้ ไม่ต้องมี API key ไม่ต้องติดตั้ง Python หรือ Docker
+**Free hook that stops your personal data before it reaches an AI.**
+Hook ฟรีแบบ RTK สำหรับ ChatGPT Desktop, Codex และ Claude Code ตรวจข้อความในเครื่องก่อนส่งให้ AI
+
+```bash
+curl -fsSL https://firmalways.meapplication.co.th/personal/install.sh | sh
+```
+
+Then open ChatGPT Desktop or Codex → Settings → Hooks and click **Trust** on
+`firmalways hook codex` (Codex reviews every new hook before it runs).
 
 ```
-You type:     ช่วยร่างข้อความถึงคุณสมศรี โทร 089-765-4321
-The AI gets:  ช่วยร่างข้อความถึงคุณ«PERSON_1» โทร «PHONE_1»
-You see:      the answer with คุณสมศรี and 089-765-4321 back in place, on your screen only
+You type:          ร่างจดหมายถึงนายสมชาย ใจดี โทร 081-234-5678
+FirmAlways:        holds the prompt, puts a safe copy on your clipboard
+You paste & send:  ร่างจดหมายถึงนาย«PERSON_1» โทร «PHONE_1»
+AI writes a file:  the file on your machine gets สมชาย ใจดี and 081-234-5678 back
 ```
 
 Part of FirmAlways: **Personal** (free, for everyone) · **Gate** (Tier 1, for
 builders: gateway, coding agents, MCP) · **Pro** (Tier 2, for organisations).
 All three use the same security core.
 
-## What it does
+## The hook
+
+| Event | What FirmAlways does |
+|---|---|
+| `UserPromptSubmit` | Personal data: the prompt is not sent; a masked copy goes to your clipboard. Passwords, API keys and PDPA s.26 data: always cut out as `«REMOVED_…»`. Warn-only types: sent, with a note. |
+| `PreToolUse` | When the agent writes a file (apply_patch, Write/Edit, or a shell command with `>` / `tee`), placeholders are replaced with the real values on your machine. In Codex this happens only when the action would not have asked you anyway; it never skips an approval. Claude Code shows the rewrite and asks. |
+
+Commands: `firmalways init [codex|claude|all]`, `uninstall`, `check "text"`,
+`mask`, `restore`, `clip [--restore]`, `allow-next`, `forget`, `status`,
+`report`, `on`, `off`. Settings live in `~/.firmalways/settings.json` (same
+policy packs and actions as the extension, plus `clipboard`, `restoreTools`
+(`files` | `all` | `off`) and `failClosed`).
+
+Real values are kept in `~/.firmalways/vault.json` (mode 600) for 24 hours so
+files can be restored; the report keeps counts only. Nothing is sent anywhere.
+
+Known limits: a hook can only stop a prompt, not rewrite it; the ChatGPT app may
+title a new chat from its first message before hooks run, so use `firmalways
+clip` before pasting personal data into a new chat; answers in the app keep
+placeholders (`firmalways clip --restore`); attachments and what the agent reads
+from files are not checked (that is FirmAlways Gate).
+
+## Browser extension
+
+For AI websites (ChatGPT, Claude, Gemini, Copilot, Perplexity, DeepSeek) there is
+also a free extension, `firmalways-personal-extension-v*.zip` in the releases.
+
+### What the extension does
 
 - Checks text when you **paste** and when you **press Enter or Send** on
   ChatGPT, Claude, Gemini, Copilot, Perplexity and DeepSeek.
@@ -37,11 +72,11 @@ All three use the same security core.
 Security is free: no message limits, and detection is never weakened to make
 you upgrade.
 
-## Install
+### Install the extension
 
 Until it is listed in the browser stores:
 
-1. Download `firmalways-personal-v*.zip` from the
+1. Download `firmalways-personal-extension-v*.zip` from the
    [latest release](https://github.com/firmalways/personal/releases/latest) and unzip it.
 2. Open `chrome://extensions` (or `edge://extensions`), turn on **Developer mode**.
 3. Click **Load unpacked** and choose the unzipped folder.
@@ -69,7 +104,7 @@ Masked values live in memory and are gone when the browser closes. See
 ```bash
 npm test                      # unit tests + parity with FirmAlways Gate
 uv run --with playwright python test/e2e_playwright.py   # end-to-end in Chromium
-sh scripts/build.sh           # dist/firmalways-personal-vX.Y.Z.zip
+sh scripts/build.sh           # dist/: hook tar.gz, extension zip, install.sh
 ```
 
 `src/core/engine.js` is a port of the FirmAlways Gate detectors.
