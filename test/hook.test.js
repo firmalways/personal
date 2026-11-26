@@ -148,6 +148,7 @@ test("firmalways read repairs OCR-style titles before masking", () => {
 
 test("คุณ as 'you' is not a name; app-encoded spaces stay spaces", () => {
   assert.strictEqual(hook(prompt("ไม่สิ่งที่คุณเสนอไอเดียมา มันเฉลยทุกอย่างทั้งหมด เช่น&#x20;\nคุณอธิบายใหม่ได้ไหม")), null);
+  fs.rmSync(path.join(HOME, "allow-next.json"), { force: true }); // left over from the allow-next test
   const out = hook(prompt("ส่งให้คุณสมชาย ใจดี เช่น&#x20;\nด่วน"));
   assert.match(out.reason, /คุณ«PERSON_\d+» เช่น \nด่วน/);
 });
