@@ -11,6 +11,7 @@ const { execFileSync } = require("child_process");
 
 const Docx = require(path.join(__dirname, "..", "src/core/docx.js"));
 const Ocr = require(path.join(__dirname, "ocr.js"));
+const { normalizeThai } = require(path.join(__dirname, "thai.js"));
 
 const DOC_EXT = /\.(pdf|docx|xlsx|pptx|csv|tsv|txt|md|markdown|json|jsonl|rtf|html?)$/i;
 const GUARD_EXT = new RegExp(`(${DOC_EXT.source})|(${Ocr.IMAGE_EXT.source})`, "i");
@@ -104,12 +105,15 @@ async function documentText(file, { range = null, budgetMs = Infinity, ocr = tru
   const started = Date.now();
   if (Ocr.IMAGE_EXT.test(file)) {
     const text = ocr ? Ocr.imageText(file, Math.min(60000, Math.max(1000, budgetMs))) : null;
-    return text === null ? { text: null, unverified: ["image"] } : { text, unverified: [] };
+    return text === null ? { text: null, output: null, unverified: ["image"] } : { text: normalizeThai(text), output: normalizeThai(text), unverified: [] };
   }
-  if (!/\.pdf$/i.test(file)) return { text: await extractText(file, range), unverified: [] };
+  if (!/\.pdf$/i.test(file)) {
+    const text = await extractText(file, range);
+    return { text: text && normalizeThai(text), output: text && normalizeThai(text), unverified: [] };
+  }
   const raw = pdfText(file, range);
-  if (raw === null) return { text: null, unverified: ["pdf"] };
-  const pages = raw.split("\f");
+  if (raw === null) return { text: null, output: null, unverified: ["pdf"] };
+  const pages = normalizeThai(raw).split("\f");
   if (pages.length > 1 && !pages[pages.length - 1].trim()) pages.pop();
   const first = range ? range[0] : 1;
   // A page needs OCR when it has almost no text, or carries a large picture: scanners and phone apps
@@ -122,6 +126,7 @@ async function documentText(file, { range = null, budgetMs = Infinity, ocr = tru
     if (t.length < SCANNED_PAGE_CHARS || (pictures ? pictures.has(n) : !/[\u0E00-\u0E7F]/.test(t))) scanned.push(n);
   });
   const unverified = [];
+  const ocrText = {};
   if (scanned.length && ocr && Ocr.available()) {
     for (let i = 0; i < scanned.length; i += 2) {
       const left = budgetMs - (Date.now() - started);
@@ -136,11 +141,16 @@ async function documentText(file, { range = null, budgetMs = Infinity, ocr = tru
         continue;
       }
       out.split("\f").forEach((t, j) => {
-        pages[batch[j] - first] += "\n" + t;
+        ocrText[batch[j]] = normalizeThai(t);
       });
     }
   } else unverified.push(...scanned);
-  return { text: pages.join("\f"), unverified };
+  // Detection looks at both the text layer and OCR. The copy given to the agent uses the text layer
+  // when it already holds real Thai text, so a noisier OCR duplicate cannot leak what OCR misreads.
+  const thaiChars = (t) => (t.match(/[\u0E01-\u0E2E]/g) || []).length;
+  const text = pages.map((p, i) => (ocrText[first + i] ? `${p}\n${ocrText[first + i]}` : p)).join("\f");
+  const output = pages.map((p, i) => (ocrText[first + i] && thaiChars(p) < 80 ? `${p}\n${ocrText[first + i]}` : p)).join("\f");
+  return { text, output, unverified };
 }
 
 /** Plain text of a document without OCR, or null when it cannot be read. */

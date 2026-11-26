@@ -139,3 +139,9 @@ test("the agent cannot switch FirmAlways off or allow files for itself", () => {
   assert.strictEqual(hook(bash("firmalways status")), null);
   assert.strictEqual(hook(bash("firmalways read notes.md")), null);
 });
+
+test("firmalways read repairs OCR-style titles before masking", () => {
+  fs.writeFileSync(path.join(DOCS, "ocr.txt"), "จำเลย  นาย มานะ ใจกล้า ที่ 1 บางสาวสมศรี รักไทย ที่ 2\n");
+  const r = run(["read", "ocr.txt"]);
+  assert.ok(!/สมศรี|รักไทย|มานะ/.test(r.stdout), r.stdout);
+});

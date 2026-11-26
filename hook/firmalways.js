@@ -22,8 +22,9 @@ const Vault = require(path.join(ROOT, "src/core/vault.js"));
 const Policy = require(path.join(ROOT, "src/core/policy.js"));
 const I18n = require(path.join(ROOT, "src/i18n.js"));
 const Files = require(path.join(ROOT, "hook/files.js"));
+const Thai = require(path.join(ROOT, "hook/thai.js"));
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 const HOME = process.env.FIRMALWAYS_HOME || path.join(os.homedir(), ".firmalways");
 const FILES = {
   settings: path.join(HOME, "settings.json"),
@@ -110,6 +111,16 @@ function record(agent, outcome, counts) {
   } catch (_) {
     // the report is optional; never fail a hook because of it
   }
+}
+
+/** Replace values found elsewhere in the document (e.g. by OCR) wherever they still appear. */
+function maskKnown(text, values, vault) {
+  for (const value of [...new Set(values)].filter((x) => x && x.length >= 4).sort((a, b) => b.length - a.length)) {
+    const k = Object.keys(vault.byKey).find((key) => vault.byToken[vault.byKey[key]] === value);
+    const token = k ? `«${vault.byKey[k]}»` : null;
+    if (token) text = text.split(value).join(token);
+  }
+  return text;
 }
 
 const sha = (text) => crypto.createHash("sha256").update(String(text).trim()).digest("hex");
@@ -578,20 +589,23 @@ function main(argv) {
       if (!arg) return console.log("firmalways read <file> [--pages 6-9]");
       const file = path.resolve(arg);
       const pages = argv.includes("--pages") ? Files.parseRange(argv[argv.indexOf("--pages") + 1]) : null;
-      return Files.documentText(file, { range: pages, ocr: s.ocr }).then(({ text, unverified }) => {
+      return Files.documentText(file, { range: pages, ocr: s.ocr }).then(({ text, output, unverified }) => {
         if (text === null || !text.trim() || unverified.length) {
           console.log(`FirmAlways: could not read ${unverified.length ? "pages " + unverified.join(", ") + " of " : ""}${path.basename(file)} on this machine, so it was not opened.`);
           process.exitCode = 1;
           return;
         }
         const v = loadVault();
-        const r = analyzeText(text, s, v);
+        // mask everything detection found in the text layer or OCR, then print the cleaner copy
+        const all = analyzeText(text, s, v);
+        const r = analyzeText(output, s, v);
+        r.safe = Thai.hideWrappedNameParts(maskKnown(r.safe, all.entities.map((e) => text.slice(e.start, e.end)), v));
         try {
           saveVault(v); // may fail inside an agent sandbox; the masked copy is still safe to print
         } catch (_) {
           process.stderr.write("FirmAlways: could not save placeholders, real values cannot be restored later\n");
         }
-        if (r.verdict !== "pass") record("read", "masked", r.counts);
+        if (all.verdict !== "pass") record("read", "masked", all.counts);
         console.log(`[FirmAlways: masked copy of ${path.basename(file)}${pages ? `, pages ${pages[0]}-${pages[1]}` : ""}. «TYPE_N» are placeholders for real values; keep them as they are.]`);
         process.stdout.write(r.safe + "\n");
       });

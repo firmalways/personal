@@ -47,7 +47,11 @@ clip` before pasting personal data into a new chat; answers in the app keep
 placeholders (`firmalways clip --restore`). The file guard looks for file names in
 each tool call; a command that reaches a file without naming it (after `cd`, from a
 variable filled by an earlier command, from inside a script) can get past it, so it
-is a guard, not a sandbox — enforced isolation is FirmAlways Gate. OCR can miss
+is a guard, not a sandbox — enforced isolation is FirmAlways Gate. Before checking,
+FirmAlways repairs Thai broken by PDF fonts and OCR (shifted marks, split SARA AM,
+marks cut off by spaces, titles misread as "บางสาว"/"น.ส."), and on pages that
+already have real Thai text it gives the agent the text layer, not a noisier OCR
+copy. OCR can miss
 text in dense tables; what it cannot read is left out of `firmalways read`, not
 sent unmasked.
 
