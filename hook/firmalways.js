@@ -24,7 +24,7 @@ const I18n = require(path.join(ROOT, "src/i18n.js"));
 const Files = require(path.join(ROOT, "hook/files.js"));
 const Thai = require(path.join(ROOT, "hook/thai.js"));
 
-const VERSION = "0.3.1";
+const VERSION = "0.3.2";
 const HOME = process.env.FIRMALWAYS_HOME || path.join(os.homedir(), ".firmalways");
 const FILES = {
   settings: path.join(HOME, "settings.json"),
@@ -227,7 +227,8 @@ async function onPrompt(input, agent) {
   const settings = loadSettings();
   const l = lang(settings);
   if (!settings.enabled) return null;
-  const prompt = String(input.prompt || "");
+  // the ChatGPT app writes trailing spaces as "&#x20;"; keep them as spaces in the safe copy
+  const prompt = String(input.prompt || "").replace(/&#x0*20;|&#0*32;/gi, " ");
   if (!prompt.trim()) return null;
   const vault = loadVault();
   const r = analyzeText(prompt, settings, vault);
