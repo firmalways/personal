@@ -24,7 +24,7 @@ const I18n = require(path.join(ROOT, "src/i18n.js"));
 const Files = require(path.join(ROOT, "hook/files.js"));
 const Thai = require(path.join(ROOT, "hook/thai.js"));
 
-const VERSION = "0.3.2";
+const VERSION = "0.3.3";
 const HOME = process.env.FIRMALWAYS_HOME || path.join(os.homedir(), ".firmalways");
 const FILES = {
   settings: path.join(HOME, "settings.json"),
