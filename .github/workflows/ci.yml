@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Unit and parity tests (same results as FirmAlways Gate)
+        run: node --test test/*.test.js
+      - name: Manifest and locale files are valid
+        run: python3 -c "import json; [json.load(open(f)) for f in ('manifest.json', '_locales/th/messages.json', '_locales/en/messages.json')]"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: End-to-end test in Chromium
+        run: |
+          python -m pip install --quiet playwright
+          python -m playwright install --with-deps chromium
+          xvfb-run -a python test/e2e_playwright.py
+      - run: sh scripts/build.sh

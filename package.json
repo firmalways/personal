@@ -1,0 +1,11 @@
+{
+  "name": "firmalways-personal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FirmAlways Personal: free, local browser extension that masks personal data before it reaches AI chat sites.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "build": "sh scripts/build.sh"
+  }
+}

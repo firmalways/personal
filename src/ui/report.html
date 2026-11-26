@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>รายงาน · FirmAlways Personal</title>
+<link rel="icon" href="../../icons/icon-32.png">
+<link rel="stylesheet" href="ui.css">
+</head>
+<body class="page" data-title="title">
+<div class="wrap">
+  <header class="top" id="top"></header>
+  <main>
+    <h1 data-t="title"></h1>
+    <p class="lead" data-t="lead"></p>
+    <div class="row noprint" style="margin:8px 0 4px">
+      <div class="seg" role="radiogroup" aria-label="Period">
+        <label><input type="radio" name="period" value="7" checked><span data-t="d7"></span></label>
+        <label><input type="radio" name="period" value="30"><span data-t="d30"></span></label>
+      </div>
+      <button type="button" id="export" data-t="export"></button>
+    </div>
+    <section class="grid" style="margin-top:12px" aria-label="Summary">
+      <div class="stat"><b id="sChecked">0</b><span data-t="checked"></span></div>
+      <div class="stat"><b id="sItems">0</b><span data-t="items"></span></div>
+      <div class="stat"><b id="sBlocked">0</b><span data-t="blocked"></span></div>
+      <div class="stat"><b id="sSites">0</b><span data-t="sites"></span></div>
+    </section>
+    <section class="card" aria-labelledby="h-types">
+      <h2 id="h-types" data-t="hTypes"></h2>
+      <div id="types"></div>
+    </section>
+    <section class="card" aria-labelledby="h-sites">
+      <h2 id="h-sites" data-t="hSites"></h2>
+      <div id="bySite"></div>
+    </section>
+    <section class="card" aria-labelledby="h-history">
+      <h2 id="h-history" data-t="hHistory"></h2>
+      <p data-t="historyHelp"></p>
+      <div style="overflow-x:auto"><table><thead><tr><th data-t="colTime"></th><th data-t="colSite"></th><th data-t="colOutcome"></th><th data-t="colTypes"></th></tr></thead><tbody id="history"></tbody></table></div>
+    </section>
+    <footer data-t="footer"></footer>
+  </main>
+</div>
+<script src="../core/engine.js"></script>
+<script src="../core/vault.js"></script>
+<script src="../core/policy.js"></script>
+<script src="../i18n.js"></script>
+<script src="page.js"></script>
+<script src="report.js"></script>
+</body>
+</html>

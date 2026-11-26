@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_name__",
+  "short_name": "FirmAlways",
+  "version": "0.1.0",
+  "description": "__MSG_description__",
+  "default_locale": "th",
+  "homepage_url": "https://firmalways.meapplication.co.th/personal/",
+  "icons": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" },
+  "permissions": ["storage", "activeTab"],
+  "background": { "service_worker": "src/background.js" },
+  "action": { "default_popup": "src/ui/popup.html", "default_title": "FirmAlways Personal" },
+  "options_ui": { "page": "src/ui/options.html", "open_in_tab": true },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://copilot.microsoft.com/*",
+        "https://www.perplexity.ai/*",
+        "https://chat.deepseek.com/*"
+      ],
+      "js": ["src/core/engine.js", "src/core/vault.js", "src/core/policy.js", "src/i18n.js", "src/content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'" }
+}

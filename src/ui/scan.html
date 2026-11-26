@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>สแกนเอกสาร · FirmAlways Personal</title>
+<link rel="icon" href="../../icons/icon-32.png">
+<link rel="stylesheet" href="ui.css">
+</head>
+<body class="page" data-title="title">
+<div class="wrap">
+  <header class="top" id="top"></header>
+  <main>
+    <h1 data-t="title"></h1>
+    <p class="lead" data-t="lead"></p>
+    <section class="card">
+      <label for="input"><b data-t="inputLabel"></b></label>
+      <textarea id="input" data-t-placeholder="placeholder" style="margin-top:6px"></textarea>
+      <div class="row" style="margin-top:10px">
+        <label class="btn" for="file" data-t="openFile"></label>
+        <input type="file" id="file" accept=".txt,.md,.csv,.json,.log,.docx,text/plain" class="hidden">
+        <button type="button" id="sample" data-t="sample"></button>
+        <span class="meta" id="fileInfo"></span>
+      </div>
+      <p class="error" id="error" role="alert"></p>
+    </section>
+    <section class="card" aria-labelledby="h-out">
+      <div class="row"><h2 id="h-out" data-t="outTitle" style="margin-right:auto"></h2><button type="button" id="copy" class="primary" data-t="copy"></button></div>
+      <p id="verdict" role="status"></p>
+      <div id="chips"></div>
+      <pre class="out" id="output" style="margin-top:10px"></pre>
+      <p class="meta" style="margin-top:10px" data-t="note"></p>
+    </section>
+    <footer data-t="footer"></footer>
+  </main>
+</div>
+<script src="../core/engine.js"></script>
+<script src="../core/vault.js"></script>
+<script src="../core/policy.js"></script>
+<script src="../core/docx.js"></script>
+<script src="../i18n.js"></script>
+<script src="page.js"></script>
+<script src="scan.js"></script>
+</body>
+</html>

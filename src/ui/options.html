@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ตั้งค่า · FirmAlways Personal</title>
+<link rel="icon" href="../../icons/icon-32.png">
+<link rel="stylesheet" href="ui.css">
+</head>
+<body class="page" data-title="title">
+<div class="wrap">
+  <header class="top" id="top"></header>
+  <main>
+    <h1 data-t="title">ตั้งค่า</h1>
+    <p class="lead" data-t="lead"></p>
+    <p class="saved" id="saved" role="status" aria-live="polite"></p>
+
+    <section class="card" aria-labelledby="h-protect">
+      <h2 id="h-protect" data-t="hProtect"></h2>
+      <label class="switch"><input type="checkbox" id="enabled"><span><b data-t="enabled"></b><small data-t="enabledHelp"></small></span></label>
+      <div class="row" style="margin-top:8px">
+        <span data-t="mode"></span>
+        <div class="seg" role="radiogroup" aria-label="Mode">
+          <label><input type="radio" name="mode" value="basic"><span data-t="basicMode"></span></label>
+          <label><input type="radio" name="mode" value="advanced"><span data-t="advancedMode"></span></label>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="basic" aria-labelledby="h-basic">
+      <h2 id="h-basic" data-t="hBasic"></h2>
+      <p data-t="basicHelp"></p>
+      <label class="switch"><input type="checkbox" data-basic="personal"><span><b data-t="bPersonal"></b><small data-t="bPersonalHelp"></small></span></label>
+      <label class="switch"><input type="checkbox" data-basic="sensitive"><span><b data-t="bSensitive"></b><small data-t="bSensitiveHelp"></small></span></label>
+      <label class="switch"><input type="checkbox" data-basic="secrets"><span><b data-t="bSecrets"></b><small data-t="bSecretsHelp"></small></span></label>
+      <label class="switch"><input type="checkbox" data-basic="autoMask"><span><b data-t="bAutoMask"></b><small data-t="bAutoMaskHelp"></small></span></label>
+    </section>
+
+    <section class="card" id="advanced" aria-labelledby="h-adv">
+      <h2 id="h-adv" data-t="hAdvanced"></h2>
+      <p data-t="advancedHelp"></p>
+      <div style="overflow-x:auto"><table><thead><tr><th data-t="colType"></th><th data-t="colAction"></th></tr></thead><tbody id="types"></tbody></table></div>
+      <h3 style="margin-top:16px" data-t="hBehaviour"></h3>
+      <label class="switch"><input type="checkbox" data-flag="askBeforeSending"><span><b data-t="askBefore"></b><small data-t="askBeforeHelp"></small></span></label>
+      <label class="switch"><input type="checkbox" data-flag="autoSend"><span><b data-t="autoSend"></b><small data-t="autoSendHelp"></small></span></label>
+      <label class="switch"><input type="checkbox" data-flag="sensitiveRequiresIdentifier"><span><b data-t="linked"></b><small data-t="linkedHelp"></small></span></label>
+      <label class="switch"><input type="checkbox" data-flag="restoreAnswers"><span><b data-t="restore"></b><small data-t="restoreHelp"></small></span></label>
+      <label class="switch"><input type="checkbox" data-flag="notifications"><span><b data-t="notify"></b><small data-t="notifyHelp"></small></span></label>
+    </section>
+
+    <section class="card" aria-labelledby="h-packs">
+      <h2 id="h-packs" data-t="hPacks"></h2>
+      <p data-t="packsHelp"></p>
+      <div id="packs"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-kw">
+      <h2 id="h-kw" data-t="hKeywords"></h2>
+      <p data-t="keywordsHelp"></p>
+      <div id="keywords"></div>
+      <form class="row" id="kwForm" style="margin-top:8px">
+        <label class="hidden" for="kwText" data-t="kwLabel"></label>
+        <input type="text" id="kwText" data-t-placeholder="kwPlaceholder" maxlength="200" style="flex:1 1 220px">
+        <select id="kwAction" aria-label="action"></select>
+        <button type="submit" data-t="add"></button>
+      </form>
+    </section>
+
+    <section class="card" aria-labelledby="h-rules">
+      <h2 id="h-rules" data-t="hRules"></h2>
+      <p data-t="rulesHelp"></p>
+      <div id="rules"></div>
+      <form class="row" id="ruleForm" style="margin-top:8px">
+        <input type="text" id="ruleName" data-t-placeholder="ruleNamePh" maxlength="40" style="flex:1 1 140px" aria-label="name">
+        <input type="text" id="rulePattern" data-t-placeholder="rulePatternPh" maxlength="500" style="flex:2 1 220px" aria-label="pattern">
+        <select id="ruleAction" aria-label="action"></select>
+        <button type="submit" data-t="add"></button>
+      </form>
+      <p class="error" id="ruleError" role="alert"></p>
+    </section>
+
+    <section class="card" aria-labelledby="h-sites">
+      <h2 id="h-sites" data-t="hSites"></h2>
+      <p data-t="sitesHelp"></p>
+      <div id="sites" class="grid"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-privacy">
+      <h2 id="h-privacy" data-t="hPrivacy"></h2>
+      <p data-t="privacyHelp"></p>
+      <div class="row">
+        <label for="retention" data-t="retention"></label>
+        <select id="retention"><option value="7">7</option><option value="30">30</option><option value="90">90</option></select>
+        <span data-t="days"></span>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button type="button" id="forget" data-t="forget"></button>
+        <button type="button" id="clearHistory" class="danger" data-t="clearHistory"></button>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <label for="lang" data-t="language"></label>
+        <select id="lang"><option value="auto">Auto</option><option value="th">ไทย</option><option value="en">English</option></select>
+      </div>
+    </section>
+    <footer data-t="footer"></footer>
+  </main>
+</div>
+<script src="../core/engine.js"></script>
+<script src="../core/vault.js"></script>
+<script src="../core/policy.js"></script>
+<script src="../i18n.js"></script>
+<script src="page.js"></script>
+<script src="options.js"></script>
+</body>
+</html>

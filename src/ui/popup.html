@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>FirmAlways Personal</title>
+<link rel="stylesheet" href="ui.css">
+<style>
+  body { width: 340px; }
+  .wrap { padding: 14px; }
+  .hd { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .hd img { width: 32px; height: 32px; border-radius: 8px; }
+  .status { padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-fg); font-size: 14px; }
+  .status.off { background: var(--soft); color: var(--muted); }
+  .grid { grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 10px 0; }
+  .stat { padding: 8px; } .stat b { font-size: 20px; } .stat span { font-size: 12px; }
+  pre.out { max-height: 140px; overflow: auto; font-size: 13px; }
+  .links { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+  .links a { text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd"><img src="../../icons/icon-48.png" alt="" width="32" height="32"><b>FirmAlways Personal</b></div>
+  <div class="status" id="status" role="status"></div>
+  <label class="switch" style="border:0"><input type="checkbox" id="siteToggle"><span id="siteLabel"></span></label>
+  <div class="grid">
+    <div class="stat"><b id="checked">0</b><span data-t="checked"></span></div>
+    <div class="stat"><b id="items">0</b><span data-t="items"></span></div>
+    <div class="stat"><b id="blocked">0</b><span data-t="blocked"></span></div>
+  </div>
+  <h3 data-t="mirror"></h3>
+  <pre class="out" id="mirror"></pre>
+  <div class="links">
+    <a class="btn" href="report.html" target="_blank" data-t="report"></a>
+    <a class="btn" href="options.html" target="_blank" data-t="settings"></a>
+    <a class="btn" href="scan.html" target="_blank" data-t="scan"></a>
+    <button type="button" id="forget" data-t="forget"></button>
+  </div>
+</div>
+<script src="../core/engine.js"></script>
+<script src="../core/vault.js"></script>
+<script src="../core/policy.js"></script>
+<script src="../i18n.js"></script>
+<script src="page.js"></script>
+<script src="popup.js"></script>
+</body>
+</html>
