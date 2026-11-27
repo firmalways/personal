@@ -1,6 +1,6 @@
 {
   "name": "firmalways-personal",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "FirmAlways Personal: free local hook for AI coding agents (Codex, ChatGPT Desktop, Claude Code) plus a browser extension, masks personal data before it reaches an AI.",
   "license": "Apache-2.0",

@@ -19,6 +19,44 @@ const MAX_FILE = 50 * 1024 * 1024;
 const SCANNED_PAGE_CHARS = 40;
 const MAX_CANDIDATES = 40;
 
+// ---- OCR cache ------------------------------------------------------------------------------
+// macOS Vision returns nothing inside an agent's sandbox (Codex sets CODEX_SANDBOX). The hook runs
+// outside it, OCRs the file first and leaves the text here for `firmalways read` to pick up.
+// Private to this user (0600), never sent anywhere, deleted after 24 hours or by `firmalways forget`.
+const OCR_CACHE_DIR = path.join(process.env.FIRMALWAYS_HOME || path.join(os.homedir(), ".firmalways"), "ocr");
+const OCR_CACHE_TTL_MS = 24 * 3600 * 1000;
+const inSandbox = () => Boolean(process.env.CODEX_SANDBOX);
+function cacheFile(file) {
+  const real = fs.realpathSync(file); // the hook and the reader may name the same folder differently (/var vs /private/var)
+  const st = fs.statSync(real);
+  const id = require("crypto").createHash("sha256").update(`${real}|${st.size}|${st.mtimeMs}`).digest("hex").slice(0, 32);
+  return path.join(OCR_CACHE_DIR, `${id}.json`);
+}
+function cachedOcr(file) {
+  try {
+    const c = JSON.parse(fs.readFileSync(cacheFile(file), "utf8"));
+    return Date.now() - c.at < OCR_CACHE_TTL_MS ? c.pages : {};
+  } catch (_) {
+    return {};
+  }
+}
+function saveOcr(file, pages) {
+  if (inSandbox() || !Object.keys(pages).length) return;
+  try {
+    fs.mkdirSync(OCR_CACHE_DIR, { recursive: true, mode: 0o700 });
+    for (const f of fs.readdirSync(OCR_CACHE_DIR)) {
+      const full = path.join(OCR_CACHE_DIR, f);
+      if (Date.now() - fs.statSync(full).mtimeMs > OCR_CACHE_TTL_MS) fs.rmSync(full, { force: true });
+    }
+    const target = cacheFile(file);
+    const pagesAll = Object.assign(cachedOcr(file), pages);
+    fs.writeFileSync(target, JSON.stringify({ at: Date.now(), pages: pagesAll }), { mode: 0o600 });
+  } catch (_) {}
+}
+function clearOcrCache() {
+  fs.rmSync(OCR_CACHE_DIR, { recursive: true, force: true });
+}
+
 function findBinary(name) {
   const dirs = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", ...(process.env.PATH || "").split(path.delimiter)];
   for (const dir of dirs) {
@@ -116,8 +154,10 @@ function imagePages(file, range) {
 async function documentText(file, { range = null, budgetMs = Infinity, ocr = true } = {}) {
   const started = Date.now();
   if (Ocr.IMAGE_EXT.test(file)) {
-    const text = ocr ? Ocr.imageText(file, Math.min(60000, Math.max(1000, budgetMs))) : null;
-    return text === null ? { text: null, output: null, unverified: ["image"] } : { text: normalizeThai(text), output: normalizeThai(text), unverified: [] };
+    const cached = cachedOcr(file)[1];
+    const text = cached !== undefined ? cached : ocr && !inSandbox() ? Ocr.imageText(file, Math.min(60000, Math.max(1000, budgetMs))) : null;
+    if (cached === undefined && text !== null) saveOcr(file, { 1: text });
+    return text === null ? { text: null, output: null, unverified: ["image"], sandboxed: inSandbox() } : { text: normalizeThai(text), output: normalizeThai(text), unverified: [] };
   }
   if (!/\.pdf$/i.test(file)) {
     const text = await extractText(file, range);
@@ -139,12 +179,18 @@ async function documentText(file, { range = null, budgetMs = Infinity, ocr = tru
   });
   const unverified = [];
   const ocrText = {};
-  if (scanned.length && ocr && Ocr.available()) {
-    for (let i = 0; i < scanned.length; i += 2) {
+  const cached = scanned.length ? cachedOcr(file) : {};
+  const todo = scanned.filter((n) => {
+    if (cached[n] === undefined) return true;
+    ocrText[n] = normalizeThai(cached[n]);
+    return false;
+  });
+  if (todo.length && ocr && Ocr.available() && !inSandbox()) {
+    for (let i = 0; i < todo.length; i += 2) {
       const left = budgetMs - (Date.now() - started);
-      const batch = scanned.slice(i, i + 2);
+      const batch = todo.slice(i, i + 2);
       if (left < 2500) {
-        unverified.push(...scanned.slice(i));
+        unverified.push(...todo.slice(i));
         break;
       }
       const out = Ocr.pdfPagesText(file, batch, Math.min(300000, left));
@@ -152,17 +198,20 @@ async function documentText(file, { range = null, budgetMs = Infinity, ocr = tru
         unverified.push(...batch);
         continue;
       }
+      const fresh = {};
       out.split("\f").forEach((t, j) => {
+        fresh[batch[j]] = t;
         ocrText[batch[j]] = normalizeThai(t);
       });
+      saveOcr(file, fresh);
     }
-  } else unverified.push(...scanned);
+  } else unverified.push(...todo);
   // Detection looks at both the text layer and OCR. The copy given to the agent uses the text layer
   // when it already holds real Thai text, so a noisier OCR duplicate cannot leak what OCR misreads.
   const thaiChars = (t) => (t.match(/[\u0E01-\u0E2E]/g) || []).length;
   const text = pages.map((p, i) => (ocrText[first + i] ? `${p}\n${ocrText[first + i]}` : p)).join("\f");
   const output = pages.map((p, i) => (ocrText[first + i] && thaiChars(p) < 80 ? `${p}\n${ocrText[first + i]}` : p)).join("\f");
-  return { text, output, unverified, scanned: scanned.filter((n) => ocrText[n] !== undefined), rawPages: raw.split("\f").slice(0, pages.length), first };
+  return { text, output, unverified, scanned: scanned.filter((n) => ocrText[n] !== undefined), rawPages: raw.split("\f").slice(0, pages.length), first, sandboxed: inSandbox() };
 }
 
 /**
@@ -280,4 +329,4 @@ function parseRange(value) {
   return m ? [Number(m[1]), Number(m[2] || m[1])] : null;
 }
 
-module.exports = { DOC_EXT, GUARD_EXT, IMAGE_PAGE_TOKENS, pdfPageCount, extractText, documentText, compactText, estimateTokens, candidatePaths, parseRange, pdfText };
+module.exports = { clearOcrCache, inSandbox, DOC_EXT, GUARD_EXT, IMAGE_PAGE_TOKENS, pdfPageCount, extractText, documentText, compactText, estimateTokens, candidatePaths, parseRange, pdfText };

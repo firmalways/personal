@@ -25,7 +25,7 @@ const Files = require(path.join(ROOT, "hook/files.js"));
 const Thai = require(path.join(ROOT, "hook/thai.js"));
 const Injection = require(path.join(ROOT, "hook/injection.js"));
 
-const VERSION = "0.4.1";
+const VERSION = "0.4.2";
 const HOME = process.env.FIRMALWAYS_HOME || path.join(os.homedir(), ".firmalways");
 const FILES = {
   settings: path.join(HOME, "settings.json"),
@@ -469,6 +469,30 @@ function writesFile(toolInput) {
   return /(^|[^0-9&>])>>?\s*(?![&\s|])/.test(cmd) || /\btee\s+(-a\s+)?[^\s|-]/.test(cmd);
 }
 
+/** `firmalways read <file>` usually runs inside the agent's sandbox, where OCR does not work. The hook
+ * runs outside it: read the scanned pages now (a few seconds), so the reader finds them in the OCR
+ * cache. What does not fit in the time goes on in the background. */
+async function prepareReads(input, settings) {
+  if (!settings.ocr) return;
+  const cmd = typeof input.tool_input === "string" ? input.tool_input : JSON.stringify(input.tool_input || "");
+  const started = Date.now();
+  for (const m of cmd.matchAll(/\bfirmalways\s+read\s+(?:'([^']+)'|\\?"([^"\\]+)\\?"|([^\s;|&"'\\]+))(?:\s+--pages\s+(\d+(?:-\d+)?))?/g)) {
+    const name = (m[1] || m[2] || m[3] || "").replace(/^~(?=\/)/, os.homedir());
+    const file = path.resolve(input.cwd && fs.existsSync(input.cwd) ? input.cwd : process.cwd(), name);
+    if (!Files.GUARD_EXT.test(file) || !fs.existsSync(file)) continue;
+    const budgetMs = HOOK_READ_BUDGET_MS - (Date.now() - started);
+    if (budgetMs < 2500) {
+      backgroundScan(file);
+      continue;
+    }
+    try {
+      const doc = await Files.documentText(file, { range: Files.parseRange(m[4]), budgetMs, ocr: true });
+      if (doc.unverified.length) backgroundScan(file);
+    } catch (_) {}
+  }
+}
+const HOOK_READ_BUDGET_MS = 7000;
+
 // Turning PDF pages into pictures for the model to look at: pdftoppm, pdftocairo, mutool, ImageMagick,
 // Ghostscript, sips, Quick Look, and the usual Python libraries.
 const RENDERS_PDF = /\b(?:pdftoppm|pdftocairo|mutool\s+(?:draw|convert)|magick|convert|gs\b[^|;&]*-sDEVICE=(?:png|jpeg|tiff)|sips\b[^|;&]*-s\s+format|qlmanage\s+-t|pdf2image|convert_from_path|get_pixmap|to_image)\b/i;
@@ -508,6 +532,7 @@ async function onTool(input, agent) {
   const tool = String(input.tool_name || "");
   const self = selfProtection(input);
   if (self) return self;
+  await prepareReads(input, settings);
   if (settings.fileGuard) {
     const hits = await guardedFiles(input, settings);
     if (hits.length) return fileDenial(hits, agent, lang(settings));
@@ -733,12 +758,17 @@ function main(argv) {
     case "uninstall":
       return install(arg, true);
     case "read": {
-      if (!arg) return console.log("firmalways read <file> [--pages 6-9]");
+      if (!arg || arg.startsWith("-")) return console.log("firmalways read <file> [--pages 6-9]   a masked text copy of a document or image; scanned pages are OCR'd on this machine");
       const file = path.resolve(arg);
       const pages = argv.includes("--pages") ? Files.parseRange(argv[argv.indexOf("--pages") + 1]) : null;
-      return Files.documentText(file, { range: pages, ocr: s.ocr }).then(({ text, output, unverified, scanned = [], first = 1 }) => {
+      return Files.documentText(file, { range: pages, ocr: s.ocr }).then(({ text, output, unverified, scanned = [], first = 1, sandboxed = false }) => {
         if (text !== null && !unverified.length && !text.trim()) {
           console.log(`FirmAlways: ${path.basename(file)} has no text, so there is nothing to hide. Open it directly.`);
+          return;
+        }
+        if (sandboxed && unverified.length) {
+          console.log(`FirmAlways is still reading the scanned ${unverified[0] === "image" ? "image" : `pages (${unverified.join(", ")})`} of ${path.basename(file)} on this machine. Run the same command again in about ${Math.max(10, unverified.length * 3)} seconds.`);
+          process.exitCode = 1;
           return;
         }
         if (text === null || unverified.length) {
@@ -842,6 +872,7 @@ function main(argv) {
       return;
     case "forget":
       fs.rmSync(FILES.vault, { force: true });
+      Files.clearOcrCache();
       console.log(l === "th" ? "ลบค่าจริงที่จำไว้แล้ว" : "Remembered values deleted.");
       return;
     case "status":

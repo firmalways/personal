@@ -273,3 +273,18 @@ test("counts from a sandboxed firmalways read reach the report through the next 
   assert.ok(Object.values(stats.days).some((d) => d.events && d.events.pagesRead >= 1));
   assert.ok(!fs.readdirSync(tmp).some((f) => f.startsWith("firmalways-pending-")));
 });
+
+test("inside the agent's sandbox, read uses OCR the hook did beforehand, or asks to run again", { skip: process.platform !== "darwin" && "needs on-device OCR" }, () => {
+  const sandbox = Object.assign({}, process.env, { FIRMALWAYS_HOME: HOME, CODEX_SANDBOX: "seatbelt" });
+  fs.copyFileSync(path.join(DOCS, "artwork.png"), path.join(DOCS, "poster.png"));
+  const before = spawnSync(process.execPath, [CLI, "read", "poster.png"], { encoding: "utf8", cwd: DOCS, env: sandbox });
+  assert.strictEqual(before.status, 1);
+  assert.match(before.stdout, /still reading/);
+  assert.strictEqual(hook(bash("firmalways read poster.png")), null, "the hook lets the reader run and prepares the OCR");
+  const after = spawnSync(process.execPath, [CLI, "read", "poster.png"], { encoding: "utf8", cwd: DOCS, env: sandbox });
+  assert.strictEqual(after.status, 0, after.stdout);
+  assert.match(after.stdout, /no text/);
+  assert.ok(fs.readdirSync(path.join(HOME, "ocr")).every((f) => (fs.statSync(path.join(HOME, "ocr", f)).mode & 0o077) === 0), "cache is private");
+  run(["forget"]);
+  assert.ok(!fs.existsSync(path.join(HOME, "ocr")));
+});
