@@ -24,7 +24,7 @@ const I18n = require(path.join(ROOT, "src/i18n.js"));
 const Files = require(path.join(ROOT, "hook/files.js"));
 const Thai = require(path.join(ROOT, "hook/thai.js"));
 
-const VERSION = "0.3.4";
+const VERSION = "0.3.5";
 const HOME = process.env.FIRMALWAYS_HOME || path.join(os.homedir(), ".firmalways");
 const FILES = {
   settings: path.join(HOME, "settings.json"),
@@ -269,7 +269,7 @@ const HOOK_OCR_BUDGET_MS = 6000;
  */
 async function scanFile(file, settings, budgetMs = Infinity) {
   const st = fs.statSync(file);
-  const key = `${file}|${st.size}|${st.mtimeMs}|${settings.ocr}|${sha(JSON.stringify([settings.packs, settings.actions, settings.basic, settings.keywords, settings.rules, settings.mode]))}`;
+  const key = `${VERSION}|${file}|${st.size}|${st.mtimeMs}|${settings.ocr}|${sha(JSON.stringify([settings.packs, settings.actions, settings.basic, settings.keywords, settings.rules, settings.mode]))}`;
   const cache = readJson(FILES.fileChecks, {});
   if (cache[file] && cache[file].key === key) return cache[file];
   let doc = { text: null, unverified: ["error"] };
@@ -279,7 +279,8 @@ async function scanFile(file, settings, budgetMs = Infinity) {
   let result;
   const found = doc.text && doc.text.trim() ? analyzeText(doc.text.slice(0, 5000000), settings, Vault.createVault()) : { verdict: "pass", counts: {} };
   if (["mask", "ask", "block"].includes(found.verdict)) result = { verdict: found.verdict, counts: found.counts };
-  else if (doc.text === null || !doc.text.trim() || doc.unverified.length) result = { verdict: "unreadable", counts: {}, unverified: doc.unverified.length };
+  // read fine but holds no text (a photo or artwork with no words): nothing to find, so it passes
+  else if (doc.text === null || doc.unverified.length) result = { verdict: "unreadable", counts: {}, unverified: doc.unverified.length };
   else result = { verdict: found.verdict, counts: found.counts };
   if (result.verdict === "unreadable" && budgetMs !== Infinity && settings.ocr && doc.text !== null) {
     backgroundScan(file); // finish the OCR without holding up the agent
@@ -591,7 +592,11 @@ function main(argv) {
       const file = path.resolve(arg);
       const pages = argv.includes("--pages") ? Files.parseRange(argv[argv.indexOf("--pages") + 1]) : null;
       return Files.documentText(file, { range: pages, ocr: s.ocr }).then(({ text, output, unverified }) => {
-        if (text === null || !text.trim() || unverified.length) {
+        if (text !== null && !unverified.length && !text.trim()) {
+          console.log(`FirmAlways: ${path.basename(file)} has no text, so there is nothing to hide. Open it directly.`);
+          return;
+        }
+        if (text === null || unverified.length) {
           console.log(`FirmAlways: could not read ${unverified.length ? "pages " + unverified.join(", ") + " of " : ""}${path.basename(file)} on this machine, so it was not opened.`);
           process.exitCode = 1;
           return;

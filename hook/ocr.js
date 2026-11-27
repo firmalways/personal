@@ -47,11 +47,11 @@ function run(argv) {
   const file = argv[0], kind = argv[1];
   if (kind === "image") {
     const img = $.NSImage.alloc.initWithContentsOfFile(file);
-    if (img.isNil()) return "";
+    if (img.isNil()) throw new Error("cannot open image"); // a failure, not "no text"
     return recognize(cgOf(img));
   }
   const doc = $.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath(file));
-  if (doc.isNil()) return "";
+  if (doc.isNil()) throw new Error("cannot open PDF");
   const pages = argv[2] ? argv[2].split(",").map(Number) : [];
   const out = [];
   for (const n of pages) {

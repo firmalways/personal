@@ -112,6 +112,24 @@ test("clean documents and the safe reader are allowed", () => {
   assert.ok(hook(bash("firmalways read notes.md; cat names.csv")).hookSpecificOutput, "a second reader in the same command is still checked");
 });
 
+function plainPng(file, w = 64, h = 64) {
+  const zlib = require("zlib");
+  const crc = (buf) => { let c = ~0; for (const b of buf) { c ^= b; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1)); } return ~c >>> 0; };
+  const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 0;
+  const raw = Buffer.alloc((w + 1) * h, 0x99); for (let y = 0; y < h; y++) raw[y * (w + 1)] = 0;
+  fs.writeFileSync(file, Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]));
+}
+
+test("a picture with no text passes; one that cannot be opened is still held", { skip: process.platform !== "darwin" && "needs on-device OCR" }, () => {
+  plainPng(path.join(DOCS, "artwork.png"));
+  assert.strictEqual(hook({ hook_event_name: "PreToolUse", tool_name: "view_image", cwd: DOCS, tool_input: { path: `${DOCS}/artwork.png` } }), null);
+  assert.strictEqual(hook(bash("cp artwork.png copy.png")), null);
+  assert.match(run(["read", "artwork.png"]).stdout, /no text/);
+  fs.writeFileSync(path.join(DOCS, "broken.png"), "not an image");
+  assert.ok(hook(bash("cp broken.png x.png")).hookSpecificOutput, "a file FirmAlways could not open stays held");
+});
+
 test("firmalways read prints a masked copy", () => {
   const r = run(["read", "names.csv"]);
   assert.strictEqual(r.status, 0, r.stderr);
