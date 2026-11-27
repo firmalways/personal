@@ -25,7 +25,7 @@ const Files = require(path.join(ROOT, "hook/files.js"));
 const Thai = require(path.join(ROOT, "hook/thai.js"));
 const Injection = require(path.join(ROOT, "hook/injection.js"));
 
-const VERSION = "0.4.0";
+const VERSION = "0.4.1";
 const HOME = process.env.FIRMALWAYS_HOME || path.join(os.homedir(), ".firmalways");
 const FILES = {
   settings: path.join(HOME, "settings.json"),
@@ -118,13 +118,36 @@ function record(agent, outcome, counts) {
 
 /** Content-free counters for what FirmAlways did besides prompts: pages read, images avoided,
  * injection warnings, and an estimate of the tokens that did not have to be spent. */
+function addEvents(stats, date, events, tokensSaved) {
+  const day = (stats.days[date] = stats.days[date] || { checked: 0, masked: 0, blocked: 0, warned: 0, allowed: 0, restored: 0, items: 0, byType: {}, byAgent: {} });
+  day.events = day.events || {};
+  for (const [k, n] of Object.entries(events)) day.events[k] = (day.events[k] || 0) + n;
+  if (tokensSaved > 0) day.tokensSaved = (day.tokensSaved || 0) + Math.round(tokensSaved);
+}
+// `firmalways read` often runs inside the agent's sandbox, which cannot write ~/.firmalways. Counts
+// wait in the temp folder (writable there, private to this user on macOS) until the next hook call,
+// which runs outside the sandbox, adds them to the report.
+const PENDING = path.join(os.tmpdir(), `firmalways-pending-${typeof process.getuid === "function" ? process.getuid() : "user"}.json`);
 function recordEvent(name, n = 1, tokensSaved = 0) {
   try {
     const stats = readJson(FILES.stats, { days: {} });
-    const day = (stats.days[today()] = stats.days[today()] || { checked: 0, masked: 0, blocked: 0, warned: 0, allowed: 0, restored: 0, items: 0, byType: {}, byAgent: {} });
-    day.events = day.events || {};
-    day.events[name] = (day.events[name] || 0) + n;
-    if (tokensSaved > 0) day.tokensSaved = (day.tokensSaved || 0) + Math.round(tokensSaved);
+    addEvents(stats, today(), { [name]: n }, tokensSaved);
+    writeJson(FILES.stats, stats);
+  } catch (_) {
+    try {
+      const pending = readJson(PENDING, { days: {} });
+      addEvents(pending, today(), { [name]: n }, tokensSaved);
+      fs.writeFileSync(PENDING, JSON.stringify(pending));
+    } catch (_) {}
+  }
+}
+function mergePendingEvents() {
+  try {
+    if (!fs.existsSync(PENDING)) return;
+    const pending = readJson(PENDING, { days: {} });
+    fs.rmSync(PENDING, { force: true });
+    const stats = readJson(FILES.stats, { days: {} });
+    for (const [date, d] of Object.entries(pending.days || {})) addEvents(stats, date, d.events || {}, d.tokensSaved || 0);
     writeJson(FILES.stats, stats);
   } catch (_) {}
 }
@@ -367,7 +390,7 @@ async function guardedFiles(input, settings) {
     } catch (_) {
       continue;
     }
-    const injection = settings.injectionGuard ? r.injection || 0 : 0;
+    const injection = settings.injectionGuard && !Injection.isAgentInstructions(file) ? r.injection || 0 : 0;
     const held = ["mask", "ask", "block"].includes(r.verdict) || (r.verdict === "unreadable" && settings.unreadableFiles === "block") || injection > 0;
     if (held) hits.push({ file, counts: r.counts, unreadable: r.verdict === "unreadable", injection });
   }
@@ -536,6 +559,7 @@ async function runHook(agent) {
   let out = null;
   try {
     input = JSON.parse(raw || "{}");
+    mergePendingEvents();
     const event = input.hook_event_name || input.hookEventName;
     if (event === "UserPromptSubmit") out = await onPrompt(input, agent);
     else if (event === "PreToolUse") out = await onTool(input, agent);
@@ -643,6 +667,7 @@ function status() {
 }
 
 function report() {
+  mergePendingEvents();
   const s = loadSettings();
   const l = lang(s);
   const days = readJson(FILES.stats, { days: {} }).days || {};
@@ -722,7 +747,7 @@ function main(argv) {
           return;
         }
         const v = loadVault();
-        const injections = s.injectionGuard ? Injection.findInjections(output) : [];
+        const injections = s.injectionGuard && !Injection.isAgentInstructions(file) ? Injection.findInjections(output) : [];
         // what a person sees, in fewer tokens: no hidden characters, layout padding or running headers
         const outPages = output.split("\f");
         const textC = Files.compactText(Injection.stripHidden(text), first);

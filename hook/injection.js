@@ -31,7 +31,9 @@ const PATTERNS = [
 ];
 
 const COMMENT = /<!--([\s\S]{0,2000}?)-->/g;
-const COMMENT_HINT = new RegExp(`\\b(?:ignore|disregard|instruction|assistant|run|execute|${AI})\\b|คำสั่ง|ถึง\\s*(?:ระบบ\\s*)?${AI}`, "i");
+// a hidden comment counts when it speaks to an AI and tells it to do something
+const COMMENT_AI = new RegExp(`\\b${AI}\\b|${AI}`, "i");
+const COMMENT_ORDER = /\b(?:ignore|disregard|forget|run|execute|send|upload|reveal|delete|email|forward|include|output|print)\b|ลืม|เพิกเฉย|ส่ง|ทำตาม|รัน|ลบ|เปิดเผย/i;
 
 /** Places in `text` that look like instructions aimed at an AI. */
 function findInjections(text) {
@@ -40,7 +42,7 @@ function findInjections(text) {
   const hidden = text.match(HIDDEN);
   if (hidden) found.push({ kind: "hidden", index: text.search(HIDDEN), snippet: `${hidden.length} hidden character(s)` });
   for (const m of text.matchAll(COMMENT)) {
-    if (COMMENT_HINT.test(m[1])) found.push({ kind: "comment", index: m.index, snippet: m[0] });
+    if (COMMENT_AI.test(m[1]) && COMMENT_ORDER.test(m[1])) found.push({ kind: "comment", index: m.index, snippet: m[0] });
   }
   for (const [kind, re] of PATTERNS) {
     const m = re.exec(text);
@@ -69,4 +71,12 @@ function stripHidden(text) {
   return text.replace(HIDDEN, "").replace(ZERO_WIDTH, "");
 }
 
-module.exports = { findInjections, findInPrompt, stripHidden };
+/** Files written as instructions for AI agents (AGENTS.md, CLAUDE.md, skills, agent config folders):
+ * orders to the AI are their purpose, so they are not checked. */
+function isAgentInstructions(file) {
+  const base = file.split(/[\\/]/).pop();
+  if (/^(AGENTS(\.override)?|CLAUDE(\.local)?|GEMINI|SKILL|copilot-instructions)\.md$/i.test(base) || /^\.(cursorrules|windsurfrules|clinerules)$/i.test(base)) return true;
+  return /[\\/]\.(codex|claude|cursor|agents|gemini)[\\/]/.test(file);
+}
+
+module.exports = { findInjections, findInPrompt, stripHidden, isAgentInstructions };
