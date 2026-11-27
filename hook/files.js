@@ -77,6 +77,18 @@ async function zipText(ab, prefix, first) {
   return parts.join("\n");
 }
 
+/** Number of pages in a PDF (poppler's pdfinfo), or null. */
+function pdfPageCount(file) {
+  const bin = findBinary("pdfinfo");
+  if (!bin) return null;
+  try {
+    const m = /^Pages:\s+(\d+)/m.exec(execFileSync(bin, [file], { encoding: "utf8", timeout: 10000, stdio: ["ignore", "pipe", "ignore"] }));
+    return m ? Number(m[1]) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 /** Pages that carry a large picture (a scan or a photo of a document), from poppler's pdfimages. */
 function imagePages(file, range) {
   const bin = findBinary("pdfimages");
@@ -150,8 +162,54 @@ async function documentText(file, { range = null, budgetMs = Infinity, ocr = tru
   const thaiChars = (t) => (t.match(/[\u0E01-\u0E2E]/g) || []).length;
   const text = pages.map((p, i) => (ocrText[first + i] ? `${p}\n${ocrText[first + i]}` : p)).join("\f");
   const output = pages.map((p, i) => (ocrText[first + i] && thaiChars(p) < 80 ? `${p}\n${ocrText[first + i]}` : p)).join("\f");
-  return { text, output, unverified };
+  return { text, output, unverified, scanned: scanned.filter((n) => ocrText[n] !== undefined), rawPages: raw.split("\f").slice(0, pages.length), first };
 }
+
+/**
+ * The same text in fewer tokens: no layout padding, no running header/footer repeated on every page,
+ * no bare page numbers. Columns keep a two-space gap so tables still read as tables.
+ */
+function compactText(text, first = 1) {
+  const pages = text.split("\f");
+  if (pages.length > 1 && !pages[pages.length - 1].trim()) pages.pop();
+  const seenOn = new Map();
+  if (pages.length >= 2) {
+    for (const p of pages) for (const t of new Set(p.split("\n").map((l) => l.trim()).filter((l) => l && l.length <= 160))) seenOn.set(t, (seenOn.get(t) || 0) + 1);
+  }
+  const repeated = (t) => pages.length >= 2 && (seenOn.get(t) || 0) >= Math.max(2, Math.ceil(pages.length / 2));
+  const pageNumber = /^[-–—\s]*(?:(?:หน้า|page|p\.)\s*)?\d{1,4}(?:\s*(?:\/|of|จาก)\s*\d{1,4})?[-–—\s]*$/i;
+  const kept = new Set();
+  const out = pages.map((p) => {
+    const lines = p.split("\n").map((l) => l.replace(/\s+$/, "").replace(/^[ \t]{3,}/, "  ").replace(/(\S)[ \t]{3,}/g, "$1  "));
+    const filled = lines.map((l, i) => (l.trim() ? i : -1)).filter((i) => i >= 0);
+    const edge = new Set([filled[0], filled[filled.length - 1]]);
+    const margin = new Set([...filled.slice(0, 2), ...filled.slice(-2)]); // where running headers and footers sit
+    const body = [];
+    lines.forEach((l, i) => {
+      const t = l.trim();
+      if (edge.has(i) && pageNumber.test(t)) return;
+      if (t && margin.has(i) && repeated(t)) {
+        if (kept.has(t)) return;
+        kept.add(t);
+      }
+      body.push(l);
+    });
+    return body.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  });
+  return out.length > 1 ? out.map((p, i) => `[page ${first + i}]\n${p}`).join("\n\n") : out[0] || "";
+}
+
+/** Rough token count for OpenAI's o200k tokenizer, measured on Thai documents (within about 15%). */
+function estimateTokens(text) {
+  if (!text) return 0;
+  const thai = (text.match(/[\u0E00-\u0E7F]/g) || []).length;
+  const digits = (text.match(/[0-9]/g) || []).length;
+  const other = text.replace(/[\u0E00-\u0E7F0-9]/g, "").replace(/\s+/g, " ").length;
+  return Math.round(thai / 1.8 + digits / 1.5 + other / 2.5);
+}
+/** What one A4 page costs when the agent renders it to an image at 150 dpi and looks at it
+ * (OpenAI high-detail tiles: 85 + 170 per 512 px tile, 1241x1754 -> 768x1085 -> 6 tiles). */
+const IMAGE_PAGE_TOKENS = 1105;
 
 /** Plain text of a document without OCR, or null when it cannot be read. */
 async function extractText(file, range) {
@@ -222,4 +280,4 @@ function parseRange(value) {
   return m ? [Number(m[1]), Number(m[2] || m[1])] : null;
 }
 
-module.exports = { DOC_EXT, GUARD_EXT, extractText, documentText, candidatePaths, parseRange, pdfText };
+module.exports = { DOC_EXT, GUARD_EXT, IMAGE_PAGE_TOKENS, pdfPageCount, extractText, documentText, compactText, estimateTokens, candidatePaths, parseRange, pdfText };

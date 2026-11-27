@@ -28,6 +28,9 @@ All three use the same security core.
 | `UserPromptSubmit` | Personal data: the prompt is not sent; a masked copy goes to your clipboard. Passwords, API keys and PDPA s.26 data: always cut out as `«REMOVED_…»`. Warn-only types: sent, with a note. |
 | `PreToolUse` (files) | Before the agent opens a document (pdf, docx, xlsx, pptx, csv, txt, md, json, images) in any way — `cat`, `pdftotext`, `pdftoppm`, Python, `view_image` — FirmAlways reads it on your machine, with OCR for scanned pages and images (macOS Vision, Thai and English; tesseract elsewhere). If it holds personal data the call is denied and the agent is told to use `firmalways read <file>`, which returns a masked copy. Files it cannot fully check are held too (fail closed). |
 | `UserPromptSubmit` (attachments) | Files named in the prompt are checked up front, and the agent is told to open them only through `firmalways read`. |
+| `UserPromptSubmit` (prompt injection) | Text pasted into the prompt that tries to give orders to the AI ("ignore all previous instructions", "หมายเหตุถึงระบบ AI: …", hidden HTML comments, bidi/tag characters) is never blocked: you see a note, and the agent is told to treat it as content and ask you before acting on it. The same words typed as your own short request are left alone. |
+| `PreToolUse` (injection in files) | A document with such text opens only through `firmalways read`, which prints a warning with the suspicious parts above the content and removes hidden characters. |
+| `PreToolUse` (token saver) | When the agent renders a PDF to images to read it (`pdftoppm`, `pdftocairo`, `magick`, `pdf2image`, `get_pixmap`…), it is sent to `firmalways read` instead: Thai is read as text (OCR on your machine for scanned pages) and no page images are sent. If it really needs the pictures (layout, charts, photos) it reruns the command with `FIRMALWAYS_VISUAL=1`. Turn off with `"tokenSaver": false`. |
 | `PreToolUse` (self-protection) | The agent may not run `firmalways allow-file/allow-next/off/uninstall`, or edit `~/.firmalways`, `~/.codex/hooks.json` or Claude settings. |
 | `PreToolUse` (writes) | When the agent writes a file (apply_patch, Write/Edit, or a shell command with `>` / `tee`), placeholders are replaced with the real values on your machine. In Codex this happens only when the action would not have asked you anyway; it never skips an approval. Claude Code shows the rewrite and asks. |
 
@@ -103,6 +106,8 @@ Masked values live in memory and are gone when the browser closes. See
 
 ## Known limits
 
+- `firmalways report` counts tokens saved only where page images were not sent (rendering avoided, or a scanned page read as OCR text), using OpenAI's published tile formula for a 150 dpi A4 page (1,105 tokens). It is an estimate. Dense Thai text can cost as many tokens as a page image; the gain there is accuracy, not tokens.
+- Prompt-injection checks look for known wording and hidden characters. New phrasing can get through; the agent's own safeguards still apply.
 - Typed text sits in the site's input box before you send it, so the site can
   technically read it. Pasting is checked before it enters the box.
 - Uploaded files and images, voice input and mobile or desktop apps are not covered.

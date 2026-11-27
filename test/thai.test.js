@@ -8,6 +8,7 @@ test("broken Thai from PDFs and OCR is repaired", () => {
   assert.strictEqual(n("กํา"), "กำ");
   assert.strictEqual(n("ก่ิ"), "กิ่");
   assert.strictEqual(n("เ วปไซต์"), "เวปไซต์");
+  assert.strictEqual(n("ลำ ดับ เลขประจำ ตัว"), "ลำดับ เลขประจำตัว");
   assert.strictEqual(n("ตาม¡สถานที่"), "ตามสถานที่");
   assert.strictEqual(n("ก ้า"), "ก้า");
   assert.strictEqual(n("ป"), "ป้");

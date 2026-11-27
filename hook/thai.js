@@ -31,6 +31,8 @@ function normalizeThai(text) {
   // a mark cut off from its letter by spaces or a stray symbol: "ก ้" -> "ก้", "ตาม¡สถานที่" -> "ตามสถานที่"
   s = s.replace(new RegExp(`([${CONS}${MARKS}])[ \\t]+(?=[${MARKS}])`, "g"), "$1");
   s = s.replace(new RegExp(`([\u0E00-\u0E7F])[¡¦§¨©ª¬®¯°±´µ¶·¸¹º¼½¾¿](?=[\u0E00-\u0E7F])`, "g"), (m, a) => a);
+  // PDF text often puts a space right after SARA AM: "ลำ ดับ" -> "ลำดับ", "คณะทำ งาน" -> "คณะทำงาน"
+  s = s.replace(new RegExp(`\u0E33 (?=[${CONS}])`, "g"), "\u0E33");
   // a leading vowel cut off from its consonant: "เ วป" -> "เวป"
   s = s.replace(new RegExp(`([${LEAD}])[ \\t]+(?=[${CONS}])`, "g"), "$1");
   // tone mark before an above/below vowel -> vowel first; drop repeated marks
