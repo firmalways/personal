@@ -121,8 +121,11 @@ Masked values live in memory and are gone when the browser closes. See
 ```bash
 npm test                      # unit tests + parity with FirmAlways Gate
 uv run --with playwright python test/e2e_playwright.py   # end-to-end in Chromium
+uv run --with fpdf2 --with uharfbuzz --with tiktoken scripts/e2e_codex.py   # hook in real Codex (macOS)
 sh scripts/build.sh           # dist/: hook tar.gz, extension zip, install.sh
 ```
+
+Before a release, follow [docs/release-test-plan.md](docs/release-test-plan.md).
 
 `src/core/engine.js` is a port of the FirmAlways Gate detectors.
 `test/parity.test.js` checks that both engines find exactly the same data on
