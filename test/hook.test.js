@@ -68,6 +68,13 @@ test("shell commands get real values only when they write a file", () => {
   const out = hook({ hook_event_name: "PreToolUse", tool_name: "Bash", permission_mode: "bypassPermissions", tool_input: { command: "cat > letter.txt <<'EOF'\nโทร «PHONE_1»\nEOF" } });
   assert.match(out.hookSpecificOutput.updatedInput.command, /โทร 081-234-5678/);
   assert.ok(hook({ hook_event_name: "PreToolUse", tool_name: "Bash", permission_mode: "dontAsk", tool_input: { command: "printf '«PHONE_1»' | tee out.txt" } }));
+  // the ChatGPT desktop app writes files from Python or Node scripts
+  const py = hook({ hook_event_name: "PreToolUse", tool_name: "Bash", permission_mode: "bypassPermissions", tool_input: { command: "python3 - <<'PY'\nfrom pathlib import Path\npath = Path(\"/tmp/m.md\")\nwith path.open(\"x\", encoding=\"utf-8\") as f:\n    f.write(\"โทร «PHONE_1»\")\nPY" } });
+  assert.match(py.hookSpecificOutput.updatedInput.command, /โทร 081-234-5678/);
+  for (const command of ["python3 -c 'open(\"a.txt\", \"w\").write(\"«PHONE_1»\")'", "python3 -c 'Path(\"a\").write_text(\"«PHONE_1»\")'", "node -e 'fs.writeFileSync(\"a\", \"«PHONE_1»\")'", "sed -i '' 's/x/«PHONE_1»/' a.txt"]) {
+    assert.ok(hook({ hook_event_name: "PreToolUse", tool_name: "Bash", permission_mode: "bypassPermissions", tool_input: { command } }), command);
+  }
+  assert.strictEqual(hook({ hook_event_name: "PreToolUse", tool_name: "Bash", permission_mode: "bypassPermissions", tool_input: { command: "python3 -c 'print(open(\"a.txt\").read(), \"«PHONE_1»\")'" } }), null, "reading is not writing");
 });
 
 test("broken input never blocks tools; nothing personal in the report", () => {

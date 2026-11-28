@@ -48,6 +48,15 @@ The end-to-end script uses the same engine and hooks, but these only show in the
 Dense Thai text costs about as much as a page image, so for text PDFs the gain is accuracy, plus the Thai repair and
 compact layout. The clear token saving is on scanned pages, and whenever the agent would read both the text and the images.
 
+## Desktop app result (0.4.3, 28 November 2026, ChatGPT app in Full access, fake data)
+
+| Check | Result |
+|---|---|
+| 1. Prompt with a phone number | Pass. "Hook blocked this message" with the Thai reason and the masked copy; the clipboard held the masked prompt and it went through. The chat title showed the number for a moment, then was renamed without it. |
+| 2. Pasted injection email | Pass for the agent: it got the FirmAlways note, did not run the command and told the user. The app does not show FirmAlways' own note for prompts it lets through (it shows hook text only when a prompt is held). |
+| 3. Writing real values back | apply_patch: pass. Found a bug: the app often writes files with `python3 - <<'PY' … open(path, "x")`, which 0.4.2 left with placeholders. Fixed in 0.4.3 (Python/Node file writes, `sed -i`), then passed in the app. Real values appear only in the app's local display events, not in what is sent to the model. |
+| 4. Hook config changed | Codex silently stopped running the hook: no prompt in the chat, and a fake number was sent. Restoring the file brought trust back for new chats; the chat started meanwhile stayed unprotected. Documented in the README. |
+
 ## Known gaps
 
 - The token numbers are estimates: page images use OpenAI's published high-detail tile formula. Codex may send larger images

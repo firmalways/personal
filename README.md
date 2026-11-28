@@ -28,11 +28,11 @@ All three use the same security core.
 | `UserPromptSubmit` | Personal data: the prompt is not sent; a masked copy goes to your clipboard. Passwords, API keys and PDPA s.26 data: always cut out as `«REMOVED_…»`. Warn-only types: sent, with a note. |
 | `PreToolUse` (files) | Before the agent opens a document (pdf, docx, xlsx, pptx, csv, txt, md, json, images) in any way — `cat`, `pdftotext`, `pdftoppm`, Python, `view_image` — FirmAlways reads it on your machine, with OCR for scanned pages and images (macOS Vision, Thai and English; tesseract elsewhere). If it holds personal data the call is denied and the agent is told to use `firmalways read <file>`, which returns a masked copy. Files it cannot fully check are held too (fail closed). |
 | `UserPromptSubmit` (attachments) | Files named in the prompt are checked up front, and the agent is told to open them only through `firmalways read`. |
-| `UserPromptSubmit` (prompt injection) | Text pasted into the prompt that tries to give orders to the AI ("ignore all previous instructions", "หมายเหตุถึงระบบ AI: …", hidden HTML comments, bidi/tag characters) is never blocked: you see a note, and the agent is told to treat it as content and ask you before acting on it. The same words typed as your own short request are left alone. |
+| `UserPromptSubmit` (prompt injection) | Text pasted into the prompt that tries to give orders to the AI ("ignore all previous instructions", "หมายเหตุถึงระบบ AI: …", hidden HTML comments, bidi/tag characters) is never blocked: the agent is told to treat it as content, tell you about it, and ask you before acting on it. (Codex CLI shows FirmAlways' own note too; the ChatGPT desktop app shows hook notes only when a prompt is held, so there you hear it from the agent.) The same words typed as your own short request are left alone. |
 | `PreToolUse` (injection in files) | A document with such text opens only through `firmalways read`, which prints a warning with the suspicious parts above the content and removes hidden characters. |
 | `PreToolUse` (token saver) | When the agent renders a PDF to images to read it (`pdftoppm`, `pdftocairo`, `magick`, `pdf2image`, `get_pixmap`…), it is sent to `firmalways read` instead: Thai is read as text (OCR on your machine for scanned pages) and no page images are sent. If it really needs the pictures (layout, charts, photos) it reruns the command with `FIRMALWAYS_VISUAL=1`. Turn off with `"tokenSaver": false`. |
 | `PreToolUse` (self-protection) | The agent may not run `firmalways allow-file/allow-next/off/uninstall`, or edit `~/.firmalways`, `~/.codex/hooks.json` or Claude settings. |
-| `PreToolUse` (writes) | When the agent writes a file (apply_patch, Write/Edit, or a shell command with `>` / `tee`), placeholders are replaced with the real values on your machine. In Codex this happens only when the action would not have asked you anyway; it never skips an approval. Claude Code shows the rewrite and asks. |
+| `PreToolUse` (writes) | When the agent writes a file (apply_patch, Write/Edit, or a shell command with `>`, `tee`, `sed -i`, or a Python/Node script that opens a file for writing), placeholders are replaced with the real values on your machine. In Codex this happens only when the action would not have asked you anyway; it never skips an approval. Claude Code shows the rewrite and asks. |
 
 Commands: `firmalways init [codex|claude|all]`, `uninstall`, `check "text"|file`,
 `read <file> [--pages 6-9]`, `allow-file <file> [hours]` (you only; the real data then goes to the AI provider),
@@ -44,7 +44,10 @@ policy packs and actions as the extension, plus `clipboard`, `restoreTools`
 Real values are kept in `~/.firmalways/vault.json` (mode 600) for 24 hours so
 files can be restored; the report keeps counts only. Nothing is sent anywhere.
 
-Known limits: a hook can only stop a prompt, not rewrite it; the ChatGPT app may
+Known limits: if anything edits `~/.codex/hooks.json` (another tool, or you), Codex stops running
+FirmAlways without a warning until you click **Trust** again in Settings → Hooks (`firmalways init`
+writes this file; normal updates do not). A chat started while the hook was not trusted keeps
+running without it; start a new chat. A hook can only stop a prompt, not rewrite it; the ChatGPT app may
 title a new chat from its first message before hooks run, so use `firmalways
 clip` before pasting personal data into a new chat; answers in the app keep
 placeholders (`firmalways clip --restore`). The file guard looks for file names in

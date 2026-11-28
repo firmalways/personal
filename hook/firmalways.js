@@ -25,7 +25,7 @@ const Files = require(path.join(ROOT, "hook/files.js"));
 const Thai = require(path.join(ROOT, "hook/thai.js"));
 const Injection = require(path.join(ROOT, "hook/injection.js"));
 
-const VERSION = "0.4.2";
+const VERSION = "0.4.3";
 const HOME = process.env.FIRMALWAYS_HOME || path.join(os.homedir(), ".firmalways");
 const FILES = {
   settings: path.join(HOME, "settings.json"),
@@ -463,10 +463,12 @@ function selfProtection(input) {
 const FILE_TOOLS = /^(apply_patch|applypatch|write|edit|multiedit|notebookedit|create_file|str_replace_based_edit_tool)$/i;
 
 const SHELL_TOOLS = /^(bash|shell|exec_command|local_shell|unified_exec|run_shell_command)$/i;
-/** A shell command that writes a file: `> file`, `>> file`, `tee file`. Codex writes most files this way. */
+/** A shell command that writes a file: `> file`, `>> file`, `tee file`, `sed -i`, or a Python/Node script
+ * that opens a file for writing (the ChatGPT desktop app often writes files with `python3 - <<'PY'`). */
+const SCRIPT_WRITES = /\bopen\(\s*(?:[^,()]*,\s*)?(?:mode\s*=\s*)?\\*["'][wxa][bt+]*\\*["']|\.write_(?:text|bytes)\(|\b(?:writeFileSync|appendFileSync|writeFile|appendFile)\(|\bsed\s+(?:-[a-zA-Z]+\s+)*-i\b|\bperl\s+-[a-zA-Z]*i/;
 function writesFile(toolInput) {
   const cmd = typeof toolInput === "string" ? toolInput : JSON.stringify(toolInput || "");
-  return /(^|[^0-9&>])>>?\s*(?![&\s|])/.test(cmd) || /\btee\s+(-a\s+)?[^\s|-]/.test(cmd);
+  return /(^|[^0-9&>])>>?\s*(?![&\s|])/.test(cmd) || /\btee\s+(-a\s+)?[^\s|-]/.test(cmd) || SCRIPT_WRITES.test(cmd);
 }
 
 /** `firmalways read <file>` usually runs inside the agent's sandbox, where OCR does not work. The hook
